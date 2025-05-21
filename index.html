@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Pac-Man Landing Page</title>
+<style>
+body {
+  background-color: #000;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace; /* Important for retro font */
+  text-align: center;
+  overflow: hidden; /* Hide scrollbars */
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+.pacman {
+  font-size: 5em;
+  animation: pacman-blink 1s steps(2, start) infinite;
+}
+
+.ghost {
+  font-size: 3em;
+  animation: ghost-blink 1.5s steps(2, start) infinite;
+}
+
+@keyframes pacman-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes ghost-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+h1 {
+  font-size: 2.5em;
+  margin-bottom: 2em;
+}
+
+p {
+  font-size: 1.2em;
+  margin-bottom: 1em;
+}
+
+a {
+  text-decoration: none;
+  color: #ff0; /* Orange color */
+  font-size: 1.5em;
+  padding: 0.5em 1em;
+  border: 2px solid #ff0;
+  border-radius: 0.5em;
+}
+
+a:hover {
+  background-color: #ff0;
+  color: #000;
+}
+
+.footer {
+  position: absolute;
+  bottom: 10px;
+  width: 100%;
+  text-align: center;
+}
+
+.credit {
+  font-size: 0.3em;
+  opacity: 0.7;
+}
+
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="container">
+  <div class="pacman">
+    👻
+  </div>
+  <h1>Welcome to the Maze!</h1>
+  <p>Get ready to devour the pellets and avoid the ghosts!</p>
+  <a href="pacman.html">Play Now</a>
+  <div class="ghost">
+    😈
+  </div>
+  <div class="ghost">
+   👾
+  </div>
+
+</div>
+<div class="footer">
+  <span id="credit" class="credit" >2025 by <a href="https://github.com/jwgv/jwgv.github.io">jwgv</a></span>
+</div>
+</body>
+</html>
