@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Pac-Man Game</title>
+<style>
+body {
+  background-color: #000;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  overflow: hidden;
+}
+
+#hud {
+  display: flex;
+  justify-content: space-between;
+  width: 500px;
+  margin: 10px;
+  color: white;
+  font-size: 14px;
+}
+
+#hearts {
+  display: flex;
+  gap: 5px;
+}
+
+.heart {
+  font-size: 1.2em;
+}
+
+#message-container {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 16px;
+  color: yellow;
+  margin-bottom: 5px;
+}
+
+#game-container {
+  position: relative;
+  width: 500px;
+  height: 500px;
+  border: 2px solid #0f0;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(10, 1fr);
+  gap: 1px;
+  background-color: #111;
+}
+
+.cell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  font-size: 1.2em;
+}
+
+.wall {
+  background-color: #333;
+  width: 100%;
+  height: 100%;
+}
+
+.pacman, .ghost, .fruit, .dot, .power-dot {
+  position: absolute;
+}
+
+.dot::after {
+  content: '.';
+  color: #fff;
+}
+
+.power-dot::after {
+  content: 'o';
+  color: yellow;
+  font-size: 1.4em;
+}
+
+.fruit { font-size: 1.5em; }
+.pacman { font-size: 1.6em; }
+.ghost { font-size: 1.6em; transition: filter 0.3s; }
+
+.vulnerable { filter: hue-rotate(200deg) brightness(1.5); }
+
+.flash {
+  animation: flash 0.2s alternate infinite;
+}
+
+@keyframes flash {
+  from { background-color: #000; }
+  to { background-color: #333; }
+}
+</style>
+<audio id="chomp-sound"><source src="chomp.mp3" type="audio/mpeg"></audio></audio>
+<audio id="power-sound"><source src="power.mp3" type="audio/mpeg"></audio></audio>
+<audio id="ghost-eaten-sound"><source src="ghost.mp3" type="audio/mpeg"></audio></audio>
+<audio id="game-over-sound"><source src="gameover.mp3" type="audio/mpeg"></audio></audio>
+</head>
+<body>
+  <div id="hud">
+    <div>Score: <span id="score">0</span></div>
+    <div id="hearts">
+      <span class="heart" style="color: lime;">❤</span>
+      <span class="heart" style="color: lime;">❤</span>
+      <span class="heart" style="color: lime;">❤</span>
+    </div>
+  </div>
+  <div id="message-container"><span id="message"></span></div>
+  <div id="game-container"></div>
+  <button id="play-again" style="display:none;margin-top:10px;font-size:1em;">Play Again</button>
+
+<script>
+const container = document.getElementById('game-container');
+const scoreElem = document.getElementById('score');
+const heartsElem = document.getElementById('hearts');
+const playAgainBtn = document.getElementById('play-again');
+const messageElem = document.getElementById('message');
+
+const SIZE = 10;
+let cellSize = 50;
+
+let score = 0;
+let level = 1;
+let pacX = 5, pacY = 5;
+let hearts = 3;
+let fruit = null;
+let fruitTimeout = null;
+let ghostSpeed = 500;
+let fruitEmojis = ["🍎","🍒","🍌","🍇","🍍","🥝","🍉"];
+let ghostVulnerable = false;
+let vulnerableTimeout;
+let readyTimeout, goTimeout;
+
+const grid = [];
+let pacman, ghosts = [], dots = [], powerDots = [], walls = [];
+
+function showMessage(text, duration = 2000) {
+  messageElem.textContent = text;
+  if (duration > 0) {
+    setTimeout(() => {
+      messageElem.textContent = '';
+    }, duration);
+  }
+}
+
+function resetGameState() {
+  score = 0;
+  scoreElem.textContent = score;
+  hearts = 3;
+  pacX = 5;
+  pacY = 5;
+  [...heartsElem.children].forEach(h => h.style.color = 'lime');
+}
+
+function createCell(x, y) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  if ((x === 2 && y > 1 && y < 8) || (y === 7 && x > 1 && x < 8)) {
+    cell.classList.add('wall');
+    walls.push(`${x},${y}`);
+  }
+  container.appendChild(cell);
+  return cell;
+}
+
+const MAZES = [
+  [
+    // Maze 0
+    [2,2],[2,3],[2,4],[2,5],[2,6],[2,7],
+    [3,7],[4,7],[5,7],[6,7],[7,7],
+  ],
+  [
+    // Maze 1
+    [1,1],[1,2],[1,3],[1,4],
+    [3,5],[4,5],[5,5],[6,5],[6,4],
+  ],
+  [
+    // Maze 2
+    [0,4],[1,4],[2,4],[3,4],
+    [6,6],[6,7],[6,8],[6,9],
+    [4,2],[5,2],[6,2],
+  ]
+];
+
+function initGrid() {
+  container.innerHTML = '';
+  grid.length = 0; // <- ensure grid is clean
+  walls = [];
+  const maze = MAZES[(level - 1) % MAZES.length];
+  for (let y = 0; y < SIZE; y++) {
+    grid[y] = [];
+    for (let x = 0; x < SIZE; x++) {
+      const isWallCoord = maze.some(([mx, my]) => mx === x && my === y);
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if (isWallCoord) {
+        cell.classList.add('wall');
+        walls.push(`${x},${y}`);
+      }
+      container.appendChild(cell);
+      grid[y][x] = cell; // <- crucial!
+    }
+  }
+}
+
+function isWall(x, y) {
+  return walls.includes(`${x},${y}`);
+}
+
+function createEntity(emoji, x, y, className) {
+  const el = document.createElement('div');
+  el.textContent = emoji;
+  el.className = className;
+  grid[y][x].appendChild(el);
+  return el;
+}
+
+function respawnGhost(g) {
+  let attempts = 0;
+  let gx, gy;
+  do {
+    gx = 4 + Math.floor(Math.random() * 2);
+    gy = 4 + Math.floor(Math.random() * 2);
+    attempts++;
+  } while ((isWall(gx, gy) || (gx === pacX && gy === pacY)) && attempts < 100);
+  g.x = gx;
+  g.y = gy;
+  g.eaten = false;
+  g.el = createEntity(g.type, g.x, g.y, 'ghost');
+}
+
+function moveGhosts() {
+  const visited = new Set();
+  ghosts.forEach(g => {
+    if (g.eaten) return;
+    g.el.remove();
+    const queue = [{ x: g.x, y: g.y, path: [] }];
+    visited.clear();
+    let target = null;
+    while (queue.length) {
+      const current = queue.shift();
+      const key = `${current.x},${current.y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      if ((ghostVulnerable && (Math.abs(current.x - pacX) + Math.abs(current.y - pacY) >= 6)) || (!ghostVulnerable && current.x === pacX && current.y === pacY)) {
+        target = current.path[0];
+        break;
+      }
+      [
+        { x: current.x + 1, y: current.y },
+        { x: current.x - 1, y: current.y },
+        { x: current.x, y: current.y + 1 },
+        { x: current.x, y: current.y - 1 }
+      ].forEach(n => {
+        const k = `${n.x},${n.y}`;
+        if (!isWall(n.x, n.y) && n.x >= 0 && n.x < SIZE && n.y >= 0 && n.y < SIZE && !visited.has(k)) {
+          queue.push({ x: n.x, y: n.y, path: [...current.path, n] });
+        }
+      });
+    }
+    if (target) {
+      g.x = target.x;
+      g.y = target.y;
+    }
+    g.el = createEntity(g.type, g.x, g.y, 'ghost');
+    if (ghostVulnerable) g.el.classList.add('vulnerable');
+  });
+  checkGhostCollision();
+}
+
+function checkGhostCollision() {
+  ghosts.forEach(g => {
+    if (g.x === pacX && g.y === pacY && !g.eaten) {
+      if (ghostVulnerable) {
+        updateScore(15);
+        g.el.textContent = '💀';
+        g.eaten = true;
+        document.getElementById('ghost-eaten-sound').play();
+        setTimeout(() => respawnGhost(g), 5000);
+      } else {
+        loseHeart();
+      }
+    }
+  });
+}
+
+playAgainBtn.onclick = () => {
+  playAgainBtn.style.display = 'none';
+  resetGameState();
+  reattachControls();
+  startLevel();
+};
+
+function updateScore(val) {
+  score += val;
+  scoreElem.textContent = score;
+  document.getElementById('chomp-sound').play();
+}
+
+
+function spawnPacman() {
+  if (pacman && pacman.parentNode) {
+    pacman.parentNode.removeChild(pacman);
+  }
+  pacman = createEntity(ghostVulnerable ? '🤩' : '😋', pacX, pacY, 'pacman');
+}
+
+
+function spawnGhosts() {
+  ghosts.forEach(g => g.el?.remove());
+  const types = ['👻','😈','👾','🎃'];
+  ghosts = types.map((type, i) => {
+    let gx, gy, attempts = 0;
+    do {
+      gx = 1 + Math.floor(Math.random() * (SIZE - 2));
+      gy = 1 + Math.floor(Math.random() * (SIZE - 2));
+      attempts++;
+    } while ((isWall(gx, gy) || (gx === pacX && gy === pacY)) && attempts < 100);
+    return {
+      x: gx,
+      y: gy,
+      el: createEntity(type, gx, gy, 'ghost'),
+      type: type,
+      eaten: false
+    };
+  });
+}
+
+
+function spawnDots() {
+  dots = [];
+  powerDots = [];
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      if ((x === 5 && y === 5) || isWall(x, y) || Math.random() < 0.1) continue;
+      const isPower = Math.random() < 0.1;
+      const dot = createEntity('', x, y, isPower ? 'power-dot' : 'dot');
+      (isPower ? powerDots : dots).push({ x, y, el: dot });
+    }
+  }
+}
+
+function spawnFruit() {
+  if (fruit) fruit.el.remove();
+  const emoji = fruitEmojis[Math.floor(Math.random() * fruitEmojis.length)];
+  const posX = 4 + Math.floor(Math.random() * 3);
+  const posY = 4 + Math.floor(Math.random() * 3);
+  fruit = { x: posX, y: posY, el: createEntity(emoji, posX, posY, 'fruit') };
+  fruitTimeout = setTimeout(() => {
+    if (fruit && fruit.el) fruit.el.remove();
+    fruit = null;
+  }, 5000);
+}
+
+function makeGhostsVulnerable() {
+  ghostVulnerable = true;
+  container.classList.add('flash');
+  ghosts.forEach(g => g.el.classList.add('vulnerable'));
+  pacman.textContent = '🤩';
+  document.getElementById('power-sound').play();
+  clearTimeout(vulnerableTimeout);
+  vulnerableTimeout = setTimeout(() => {
+    ghostVulnerable = false;
+    container.classList.remove('flash');
+    ghosts.forEach(g => g.el.classList.remove('vulnerable'));
+    pacman.textContent = '😋';
+  }, 9000);
+}
+
+function movePacman(dx, dy) {
+  const newX = pacX + dx;
+  const newY = pacY + dy;
+  if (newX < 0 || newX >= SIZE || newY < 0 || newY >= SIZE || isWall(newX, newY)) return;
+
+  pacman.remove();
+  pacX = newX;
+  pacY = newY;
+  spawnPacman();
+
+  dots = dots.filter(dot => {
+    if (dot.x === pacX && dot.y === pacY) {
+      dot.el.remove();
+      updateScore(1);
+      return false;
+    }
+    return true;
+  });
+
+  powerDots = powerDots.filter(dot => {
+    if (dot.x === pacX && dot.y === pacY) {
+      dot.el.remove();
+      updateScore(5);
+      makeGhostsVulnerable();
+      return false;
+    }
+    return true;
+  });
+
+  if (fruit && fruit.x === pacX && fruit.y === pacY) {
+    fruit.el.remove();
+    updateScore(5);
+    fruit = null;
+    clearTimeout(fruitTimeout);
+  }
+
+  checkGhostCollision();
+  if (dots.length === 0 && powerDots.length === 0) {
+    setTimeout(() => {
+      showMessage('Level Cleared!');
+      level++;
+      ghostSpeed *= 0.99;
+      startLevel();
+    }, 500);
+  }
+}
+
+function loseHeart() {
+  hearts--;
+  [...heartsElem.children].forEach((h, i) => {
+    h.style.color = i < hearts ? (hearts === 2 ? 'yellow' : (hearts === 1 ? 'red' : 'gray')) : 'gray';
+  });
+  if (hearts <= 0) {
+    showMessage('Game Over');
+    document.getElementById('game-over-sound').play();
+    ghosts = [];
+    dots = [];
+    powerDots = [];
+    fruit = null;
+    clearInterval(fruitTimeout);
+    container.innerHTML = '';
+    document.removeEventListener('keydown', handleKeys);
+    playAgainBtn.style.display = 'block';
+  } else {
+    pacX = 5;
+    pacY = 5;
+    pacman.remove();
+    spawnPacman();
+  }
+}
+
+function startLevel() {
+  console.log('startLevel called');
+  showMessage('Get Ready...', 2000);
+  setTimeout(() => {
+    showMessage('Go!', 1000);
+    setTimeout(() => {
+      console.log('Initializing level...');
+      container.innerHTML = '';
+      initGrid();
+      spawnDots();
+      spawnPacman();
+      spawnGhosts();
+      reattachControls();
+      spawnFruit();
+    }, 1000);
+  }, 2000);
+}
+
+resetGameState();
+// Reattached after play again if game is over
+function reattachControls() {
+  document.removeEventListener('keydown', handleKeys);
+  document.addEventListener('keydown', handleKeys);
+}
+startLevel();
+setInterval(() => {
+  if (container.children.length > 0) spawnFruit();
+}, 7000);
+setInterval(() => {
+  if (ghosts.length > 0) moveGhosts();
+}, ghostSpeed);
+
+function handleKeys(e) {
+  if (e.key === 'ArrowUp') movePacman(0, -1);
+  if (e.key === 'ArrowDown') movePacman(0, 1);
+  if (e.key === 'ArrowLeft') movePacman(-1, 0);
+  if (e.key === 'ArrowRight') movePacman(1, 0);
+}
+
+document.addEventListener('keydown', handleKeys);
+
+console.log('Game initialized');
+</script>
+</body>
+</html>
